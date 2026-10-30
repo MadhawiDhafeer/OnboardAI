@@ -42,28 +42,104 @@ def task(eid, title, owner, status='Pending', details='', approval=False):
 
 def llm_plan(employee):
     try:
-        key = st.secrets.get('GEMINI_API_KEY', os.getenv('GEMINI_API_KEY', ''))
+        key = st.secrets.get(
+            'GEMINI_API_KEY',
+            os.getenv('GEMINI_API_KEY', '')
+        )
     except Exception:
         key = os.getenv('GEMINI_API_KEY', '')
+
     if not key:
         return None, 'Rule-based planner (no API key configured)'
+
     try:
-        model = st.secrets.get('GEMINI_MODEL', 'gemini-2.0-flash')
+        model = st.secrets.get('GEMINI_MODEL', 'gemini-2.5-flash')
     except Exception:
-        model = 'gemini-2.0-flash'
-    prompt = f'''You are an HR onboarding planning assistant. Employee: role={employee['role']}, department={employee['department']}. Return ONLY valid JSON with keys "tasks" (array of 2 to 3 objects each with "title", "owner" and "details"), and "welcome_note" (one short professional sentence). Owners must be HR, IT, Manager, or Employee. Tasks must be practical, specific to the role, and NOT duplicate general ID verification, welcome email, laptop, IT access, or orientation. No confidential data. Do not claim tasks were executed.'''
-    url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
-    payload = json.dumps({'contents':[{'parts':[{'text':prompt}]}], 'generationConfig':{'responseMimeType':'application/json','temperature':0.2}}).encode()
+        model = 'gemini-2.5-flash'
+
+    prompt = f'''
+    You are an HR onboarding planning assistant.
+
+    Employee:
+    Role: {employee['role']}
+    Department: {employee['department']}
+
+    Return ONLY valid JSON with:
+    - "tasks": array of 2 to 3 objects
+    - Each task must contain "title", "owner", and "details"
+    - "welcome_note": one short professional sentence
+
+    Owners must be HR, IT, Manager, or Employee.
+
+    Tasks must be:
+    - Practical
+    - Specific to the employee's role
+    - Different from general onboarding tasks
+
+    Do not duplicate:
+    - ID verification
+    - Welcome email
+    - Laptop preparation
+    - IT access
+    - Orientation
+
+    Do not include confidential data.
+    Do not claim tasks were executed.
+    '''
+
+    url = (
+        f'https://generativelanguage.googleapis.com/'
+        f'v1beta/models/{model}:generateContent'
+    )
+
+    payload = json.dumps({
+        'contents': [
+            {
+                'parts': [
+                    {'text': prompt}
+                ]
+            }
+        ],
+        'generationConfig': {
+            'responseMimeType': 'application/json',
+            'temperature': 0.2
+        }
+    }).encode()
+
     try:
-        req = urllib.request.Request(url, data=payload, headers={'Content-Type':'application/json','x-goog-api-key':key}, method='POST')
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            result=json.load(resp)
-        raw=result['candidates'][0]['content']['parts'][0]['text']
-        parsed=json.loads(raw)
-        if not isinstance(parsed.get('tasks'),list): raise ValueError('Invalid tasks')
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={
+                'Content-Type': 'application/json',
+                'x-goog-api-key': key
+            },
+            method='POST'
+        )
+
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            result = json.load(resp)
+
+        raw = result['candidates'][0]['content']['parts'][0]['text']
+
+        parsed = json.loads(raw)
+
+        if not isinstance(parsed, dict):
+            raise ValueError('Invalid response format')
+
+        if not isinstance(parsed.get('tasks'), list):
+            raise ValueError('Invalid tasks')
+
         return parsed, f'Gemini ({model})'
+
+    except urllib.error.HTTPError as exc:
+        return None, f'Rule-based fallback (Gemini HTTP {exc.code})'
+
     except Exception as exc:
-        return None, f'Rule-based fallback (AI unavailable: {type(exc).__name__})'
+        return None, (
+            f'Rule-based fallback '
+            f'(AI unavailable: {type(exc).__name__})'
+        )
 
 def run_agent(eid):
     employee=rows('SELECT * FROM employees WHERE id=?',(eid,))[0]
