@@ -12,6 +12,9 @@ REQUIRED_DOCS = ['National ID', 'Signed contract', 'Bank details']
 @st.cache_resource
 def connect():
     conn = sqlite3.connect(DB, check_same_thread=False)
+    # Enable SQLite rows to be converted into dictionaries
+    conn.row_factory = sqlite3.Row
+
     conn.execute('PRAGMA journal_mode=WAL')
     conn.executescript('''
     CREATE TABLE IF NOT EXISTS employees (id INTEGER PRIMARY KEY, name TEXT, email TEXT, role TEXT, department TEXT, manager TEXT, start_date TEXT, documents TEXT, created_at TEXT);
